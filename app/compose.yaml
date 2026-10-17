@@ -1,0 +1,18 @@
+services:
+  falkordb:
+    image: falkordb/falkordb@sha256:107455e862a824e45e8e9f5a7fbfdf5e00a08b14e13eae2577c72fd9e3f59ba6
+    container_name: loopsuture-falkordb
+    ports:
+      - "127.0.0.1:6388:6379"
+      - "127.0.0.1:3088:3000"
+    volumes:
+      - loopsuture-falkordb-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+volumes:
+  loopsuture-falkordb-data:
+    name: loopsuture-falkordb-data

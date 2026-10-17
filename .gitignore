@@ -1,0 +1,22 @@
+# Keep presentation recordings, narration, and production assets local.
+/presentation/
+
+# Dependencies and generated application output.
+node_modules/
+.next/
+out/
+coverage/
+test-results/
+playwright-report/
+artifacts/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local configuration and credentials; retain the safe setup template.
+.env*
+!.env.example
+
+# Logs and operating-system metadata.
+*.log
+.DS_Store
+Thumbs.db
