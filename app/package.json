@@ -8,8 +8,9 @@
     "start": "next start --hostname 127.0.0.1 --port 3025",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/simulator.test.ts tests/model-config.test.ts tests/model-errors.test.ts tests/model-conclusion.test.ts",
-    "test:api": "tsx --test tests/api.test.ts"
+    "test": "tsx --test tests/simulator.test.ts tests/model-config.test.ts tests/model-errors.test.ts tests/model-conclusion.test.ts tests/gemini-investigation.test.ts",
+    "test:api": "tsx --test tests/api.test.ts",
+    "test:model": "node scripts/test-model.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.12.0",
