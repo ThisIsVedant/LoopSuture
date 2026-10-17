@@ -60,3 +60,18 @@ export async function applyRepair(id: string, candidateId: string, revision: num
     return run;
   });
 }
+export async function freshEdit(id: string, origin: SystemId, status: string): Promise<Run> {
+  return withRunLock(id, async () => {
+    const run = await requireRun(id);
+    if (!run.scenario.systems.includes(origin)) throw new RequestError("That origin is not available in this run.");
+    run.history ??= [];
+    run.history.push({ revision: run.revision, simulation: run.simulation, workflows: structuredClone(run.scenario.workflows), investigation: run.investigation });
+    const previous = run.simulation.records;
+    run.input = { id: randomUUID(), origin, value: { ...run.input.value, status, version: run.input.value.version + 1 } };
+    run.revision++;
+    run.simulation = simulate(run.scenario, run.input, previous);
+    delete run.investigation;
+    await saveRun(run);
+    return run;
+  });
+}

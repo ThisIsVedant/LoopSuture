@@ -7,7 +7,7 @@ async function api(path: string, body?: unknown, method = "POST") {
   return { status: response.status, body: await response.json() };
 }
 
-test("reject ineligible repairs and stale revisions", async () => {
+test("live FalkorDB-backed investigation, rejected repair, selected repair, fresh edit and persisted history", async () => {
   const created = await api("/api/runs", { scenarioId: "three-way" });
   assert.equal(created.status, 201);
   const run = created.body as Run;
@@ -27,6 +27,15 @@ test("reject ineligible repairs and stale revisions", async () => {
   assert.equal(repaired.body.history[0].simulation.termination, "budget-exhausted");
   const stale = await api(`/api/runs/${run.id}/repair`, { candidateId: result.investigation.selectedId, revision: 0 });
   assert.equal(stale.status, 409);
+  const edited = await api(`/api/runs/${run.id}/edit`, { origin: "marketing", status: "qualified" });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.revision, 2);
+  assert.equal(edited.body.simulation.termination, "drained");
+  assert.equal(edited.body.simulation.metrics.repeated, 0);
+  assert.ok(edited.body.simulation.goals.every((goal: { passed: boolean }) => goal.passed));
+  const persisted = await api(`/api/runs/${run.id}`, undefined, "GET");
+  assert.equal(persisted.body.revision, 2);
+  assert.equal(persisted.body.history.length, 2);
 });
 test("healthy retries are not repaired, while repeated webhook effects are identified through graph actions", async () => {
   const healthy = await api("/api/runs", { scenarioId: "healthy-retry" });
