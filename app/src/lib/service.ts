@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { loadRun, saveRun, updateSnapshot, readWorkflows } from "./graph";
 import { getScenario } from "./scenarios";
 import { evaluateCandidate, simulate } from "./simulator";
+import { investigateRun } from "./investigator";
 import type { BusinessValue, Run, ScenarioId, SystemId } from "./domain";
 
 export class RequestError extends Error { constructor(message: string, public status = 400) { super(message); } }
@@ -26,4 +27,12 @@ export async function createRun(scenarioId: ScenarioId, origin?: SystemId, value
   const run: Run = { id: randomUUID(), createdAt: new Date().toISOString(), scenario, input, revision: 0, simulation: simulate(scenario, input), history: [] };
   await saveRun(run);
   return run;
+}
+export async function investigate(id: string): Promise<Run> {
+  return withRunLock(id, async () => {
+    const run = await requireRun(id);
+    run.investigation = await investigateRun(run);
+    await updateSnapshot(run);
+    return run;
+  });
 }

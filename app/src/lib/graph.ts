@@ -1,7 +1,7 @@
 import "server-only";
 import { FalkorDB } from "falkordb";
 import { createConnection } from "node:net";
-import type { Run, Workflow } from "./domain";
+import type { Run, PathEvidence, Workflow } from "./domain";
 
 const globalGraph = globalThis as unknown as { loopSutureDb?: Promise<FalkorDB> };
 function connection() {
@@ -65,7 +65,16 @@ export async function loadRun(id: string): Promise<Run | null> {
   const row = result.data?.[0] as { snapshot?: string } | undefined;
   return row?.snapshot ? JSON.parse(row.snapshot) as Run : null;
 }
+export const FEEDBACK_QUERY = "MATCH p=(a:Event {runId: $id, revision: $revision})-[:CAUSED*1..9]->(b:Event {runId: $id, revision: $revision}) WHERE a.sequence = 0 AND a.rootId = b.rootId AND a.system = b.system AND a.payloadHash = b.payloadHash RETURN [n IN nodes(p) | n.id] AS eventIds, [n IN nodes(p) | n.system] AS systems, [n IN nodes(p) | n.workflowId] AS workflowIds, a.rootId AS rootId ORDER BY b.sequence LIMIT 3";
+export async function traceFeedback(id: string, revision: number): Promise<PathEvidence[]> {
+  const result = await query(FEEDBACK_QUERY, { id, revision });
+  return (result.data ?? []).map((row) => row as unknown as PathEvidence);
+}
 export async function readWorkflows(id: string, revision: number): Promise<Workflow[]> {
   const result = await query("MATCH (w:Workflow {runId: $id, revision: $revision}) RETURN w.id AS id, w.name AS name, w.source AS source, w.target AS target, w.repair AS repair, w.failuresBeforeSuccess AS failuresBeforeSuccess ORDER BY w.id", { id, revision });
   return (result.data ?? []).map((row) => row as unknown as Workflow);
+}
+export async function repeatedWorkflows(id: string, revision: number): Promise<string[]> {
+  const result = await query("MATCH (a:Action {runId: $id, revision: $revision, status: 'delivered'})-[:USED_WORKFLOW]->(w:Workflow {runId: $id, revision: $revision}) WITH w.id AS workflowId, a.rootId AS rootId, count(a) AS deliveries WHERE deliveries > 1 RETURN DISTINCT workflowId", { id, revision });
+  return (result.data ?? []).map((row) => (row as { workflowId: string }).workflowId);
 }

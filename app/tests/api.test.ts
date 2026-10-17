@@ -7,12 +7,28 @@ async function api(path: string, body?: unknown, method = "POST") {
   return { status: response.status, body: await response.json() };
 }
 
-test("create and retrieve a graph-backed simulation run", async () => {
+test("investigate graph evidence and rank supported repairs", async () => {
   const created = await api("/api/runs", { scenarioId: "three-way" });
   assert.equal(created.status, 201);
   const run = created.body as Run;
-  const loaded = await api(`/api/runs/${run.id}`, undefined, "GET");
-  assert.equal(loaded.body.id, run.id);
+  const investigated = await api(`/api/runs/${run.id}/investigate`);
+  assert.equal(investigated.status, 200);
+  const result = investigated.body as Run;
+  assert.ok(result.investigation?.paths.length);
+  assert.equal(result.investigation.status, "repair-found");
+  assert.equal(result.investigation.candidates.length, 17);
+});
+test("healthy retries are not repaired, while repeated webhook effects are identified through graph actions", async () => {
+  const healthy = await api("/api/runs", { scenarioId: "healthy-retry" });
+  const report = await api(`/api/runs/${healthy.body.id}/investigate`);
+  assert.equal(report.status, 200);
+  assert.equal(report.body.investigation.status, "healthy");
+  assert.equal(report.body.investigation.candidates.length, 0);
+  const duplicate = await api("/api/runs", { scenarioId: "duplicate" });
+  const duplicateReport = await api(`/api/runs/${duplicate.body.id}/investigate`);
+  assert.equal(duplicateReport.status, 200);
+  assert.equal(duplicateReport.body.investigation.paths.length, 0);
+  assert.equal(duplicateReport.body.investigation.status, "repair-found");
 });
 test("malformed input, wrong origin, unknown run, and cross-origin mutations are rejected", async () => {
   assert.equal((await api("/api/runs", { scenarioId: "unknown" })).status, 400);
