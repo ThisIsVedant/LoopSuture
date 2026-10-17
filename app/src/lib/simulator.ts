@@ -1,4 +1,4 @@
-import type { BusinessValue, InputChange, Scenario, Simulation, SystemId } from "./domain";
+import type { BusinessValue, Candidate, InputChange, Scenario, Simulation, SystemId, VerificationProbe } from "./domain";
 
 export function businessHash(value: BusinessValue): string {
   return JSON.stringify([value.name, value.status, value.version]);
@@ -29,7 +29,9 @@ export function simulate(scenario: Scenario, input: InputChange, initialRecords:
       if (result.actions.length >= scenario.actionBudget) { queue.unshift(current); break; }
       const key = `${input.id}:${workflow.id}:${workflow.target}:${businessHash(current.value)}`;
       const action = { id: `a${result.actions.length}`, sequence: result.actions.length, eventId: current.id, rootId: input.id, workflowId: workflow.id, source: workflow.source, target: workflow.target, status: "delivered" as "delivered" | "suppressed" | "retry", reason: "Business update delivered", emittedEventId: null as string | null };
-      if (workflow.repair === "deduplicate" && processed.has(key)) { action.status = "suppressed"; action.reason = "This change already completed this workflow"; }
+      if (workflow.repair === "disable") { action.status = "suppressed"; action.reason = "Workflow disabled"; }
+      else if (workflow.repair === "deduplicate" && processed.has(key)) { action.status = "suppressed"; action.reason = "This change already completed this workflow"; }
+      else if (workflow.repair === "suppress-noop" && result.records[workflow.target] && businessHash(result.records[workflow.target]!) === businessHash(current.value)) { action.status = "suppressed"; action.reason = "Destination business fields already match"; }
       else if ((failures.get(key) ?? 0) < (workflow.failuresBeforeSuccess ?? 0)) {
         failures.set(key, (failures.get(key) ?? 0) + 1);
         action.status = "retry"; action.reason = "Temporary delivery failure; retry remains within its bound";
@@ -66,4 +68,30 @@ export function simulate(scenario: Scenario, input: InputChange, initialRecords:
   result.metrics.goalsPassed = result.goals.filter((item) => item.passed).length;
   result.metrics.goalsTotal = result.goals.length;
   return result;
+}
+
+export function evaluateCandidate(scenario: Scenario, input: InputChange, workflowIdsInput: string | string[], kind: Candidate["kind"]): Candidate {
+  const workflowIds = [...new Set(typeof workflowIdsInput === "string" ? [workflowIdsInput] : workflowIdsInput)].sort();
+  if (!workflowIds.length) throw new Error("A repair must include at least one workflow.");
+  const patched = structuredClone(scenario);
+  for (const workflowId of workflowIds) {
+    const workflow = patched.workflows.find((item) => item.id === workflowId);
+    if (!workflow) throw new Error("Repair workflow is not present in this run.");
+    workflow.repair = kind;
+  }
+  const baselineReplay = simulate(patched, input);
+  // Probe from all supported origins, on top of the repaired run's state.
+  // A new change ID and business version test that guards do not permanently lock a record.
+  const probes: VerificationProbe[] = scenario.systems.map((origin, index) => {
+    const replay = simulate(patched, { id: `${input.id}:fresh:${origin}`, origin, value: { ...input.value, status: "qualified", version: input.value.version + index + 1 } }, baselineReplay.records);
+    return { origin, termination: replay.termination, passed: replay.termination === "drained" && replay.metrics.repeated === 0 && replay.goals.every((goal) => goal.passed), delivered: replay.metrics.delivered, goalsPassed: replay.metrics.goalsPassed, goalsTotal: replay.metrics.goalsTotal, repeated: replay.metrics.repeated };
+  });
+  const baselinePassed = baselineReplay.termination === "drained" && baselineReplay.metrics.repeated === 0 && baselineReplay.goals.every((goal) => goal.passed);
+  const eligible = baselinePassed && probes.every((probe) => probe.passed);
+  const label = { disable: "Disable workflow", deduplicate: "Deduplicate this change", "suppress-noop": "Skip unchanged writes" }[kind];
+  const reason = !baselinePassed
+    ? baselineReplay.termination !== "drained" ? "Feedback still exhausts the action budget." : baselineReplay.metrics.repeated > 0 ? "Repeated side effects remain." : "A required destination no longer receives the update."
+    : probes.some((probe) => !probe.passed) ? "A fresh edit fails its delivery or termination check." : "Feedback stops; required deliveries and all fresh-edit checks pass.";
+  const description = workflowIds.length === 1 ? patched.workflows.find((item) => item.id === workflowIds[0])!.name : `${workflowIds.length} connected workflows`;
+  return { id: `${workflowIds.join("+")}:${kind}`, workflowId: workflowIds[0], workflowIds, kind, title: `${label} · ${description}`, eligible, reason, score: workflowIds.length * 10 + (kind === "suppress-noop" ? 1 : kind === "deduplicate" ? 2 : 100), baselineReplay, probes };
 }
