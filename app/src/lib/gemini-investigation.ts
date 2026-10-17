@@ -58,24 +58,51 @@ async function runModel(
   const timeout = () => new GeminiTransientError("Gemini could not finish within this investigation's time limit. Retry Gemini when it is available. The verified graph report remains available.");
 
   async function request(body: object): Promise<Record<string, unknown>> {
-    const remaining = deadline - io.now();
-    if (remaining <= 0 || requests >= io.maxRequests) throw timeout();
-    requests++;
-    io.onRequest();
-    try {
-      const response = await io.fetch(GEMINI_ENDPOINT, {
-        method: "POST", headers: { "x-goog-api-key": settings.apiKey, "Content-Type": "application/json" },
-        body: JSON.stringify(body), signal: AbortSignal.timeout(Math.max(1, Math.min(REQUEST_TIMEOUT_MS, remaining))),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw providerFailureFromResponse(response.status, payload, "Gemini");
-      if (io.now() >= deadline) throw timeout();
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new ModelConnectionError("Gemini returned an invalid response. The verified graph report remains available.");
-      return payload;
-    } catch (error) {
-      if (error instanceof ModelConnectionError) throw error;
-      throw new ModelConnectionError("Gemini could not complete this investigation. The verified graph report remains available.");
+    // Retry the same immutable request; history changes only after a complete
+    // response. These tools read evidence and cannot apply a repair.
+    const encoded = JSON.stringify(body);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const remaining = deadline - io.now();
+      if (remaining <= 0 || requests >= io.maxRequests) throw timeout();
+      requests++;
+      io.onRequest();
+      let retryAfter = 0;
+      let failure: ModelConnectionError;
+      try {
+        const response = await io.fetch(GEMINI_ENDPOINT, {
+          method: "POST", headers: { "x-goog-api-key": settings.apiKey, "Content-Type": "application/json" },
+          body: encoded, signal: AbortSignal.timeout(Math.max(1, Math.min(REQUEST_TIMEOUT_MS, remaining))),
+        });
+        const payload = await response.json().catch(error => {
+          if (error instanceof Error && ["TimeoutError", "AbortError", "TypeError"].includes(error.name)) throw error;
+          return null;
+        });
+        if (response.ok) {
+          if (io.now() >= deadline) throw timeout();
+          if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new ModelConnectionError("Gemini returned an invalid response. The verified graph report remains available.");
+          return payload;
+        }
+        failure = providerFailureFromResponse(response.status, payload, "Gemini");
+        // Quota/auth/schema errors need action, not repeated consumption of a
+        // free allowance. Retry only transient server failures.
+        if (![408, 500, 502, 503, 504].includes(response.status)) throw failure;
+        failure = new GeminiTransientError(failure.message);
+        const header = response.headers.get("retry-after");
+        if (header) retryAfter = /^\d+(\.\d+)?$/.test(header) ? Number(header) * 1000 : Math.max(0, Date.parse(header) - io.now());
+        if (!Number.isFinite(retryAfter)) retryAfter = 0;
+        if (retryAfter > 5000) throw failure;
+      } catch (error) {
+        if (error instanceof ModelConnectionError) throw error;
+        if (!(error instanceof Error) || !["TimeoutError", "AbortError", "TypeError"].includes(error.name)) throw new ModelConnectionError("Gemini returned an invalid response. The verified graph report remains available.");
+        failure = new GeminiTransientError("Gemini did not respond after bounded retries. Retry Gemini when it is available. The verified graph report remains available.");
+      }
+      const delay = Math.max(retryAfter, 1000 * 2 ** attempt);
+      if (attempt === 2 || requests >= io.maxRequests || io.now() + delay >= deadline) throw failure;
+      retries++;
+      io.onRetry();
+      await io.sleep(delay);
     }
+    throw timeout();
   }
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
