@@ -27,3 +27,11 @@ test("duplicate deliveries execute one effect but a distinct later change to the
   assert.equal(later.metrics.delivered, 1);
   assert.equal(later.records.marketing?.version, 2);
 });
+test("healthy bounded retries are preserved and do not count as repeated successful effects", () => {
+  const result = simulate(getScenario("healthy-retry"), input);
+  assert.equal(result.termination, "drained");
+  assert.equal(result.metrics.retries, 2);
+  assert.equal(result.metrics.delivered, 1);
+  assert.equal(result.metrics.repeated, 0);
+  assert.ok(result.goals.every((goal) => goal.passed));
+});

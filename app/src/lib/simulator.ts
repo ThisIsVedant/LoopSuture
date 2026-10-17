@@ -30,7 +30,11 @@ export function simulate(scenario: Scenario, input: InputChange, initialRecords:
       const key = `${input.id}:${workflow.id}:${workflow.target}:${businessHash(current.value)}`;
       const action = { id: `a${result.actions.length}`, sequence: result.actions.length, eventId: current.id, rootId: input.id, workflowId: workflow.id, source: workflow.source, target: workflow.target, status: "delivered" as "delivered" | "suppressed" | "retry", reason: "Business update delivered", emittedEventId: null as string | null };
       if (workflow.repair === "deduplicate" && processed.has(key)) { action.status = "suppressed"; action.reason = "This change already completed this workflow"; }
-      else {
+      else if ((failures.get(key) ?? 0) < (workflow.failuresBeforeSuccess ?? 0)) {
+        failures.set(key, (failures.get(key) ?? 0) + 1);
+        action.status = "retry"; action.reason = "Temporary delivery failure; retry remains within its bound";
+        queue.push(current);
+      } else {
         processed.add(key);
         if (successful.has(key)) result.metrics.repeated++;
         successful.add(key);
