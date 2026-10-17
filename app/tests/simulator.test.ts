@@ -17,3 +17,13 @@ test("a three-system feedback loop exhausts its bound while recording honest cau
     assert.equal(parent.rootId, event.rootId);
   }
 });
+test("duplicate deliveries execute one effect but a distinct later change to the same customer still executes", () => {
+  const scenario = getScenario("duplicate");
+  scenario.workflows[0].repair = "deduplicate";
+  const first = simulate(scenario, input);
+  assert.equal(first.metrics.delivered, 1);
+  assert.equal(first.metrics.suppressed, 3);
+  const later = simulate(scenario, { ...input, id: "change-2", value: { ...input.value, version: 2 } }, first.records);
+  assert.equal(later.metrics.delivered, 1);
+  assert.equal(later.records.marketing?.version, 2);
+});

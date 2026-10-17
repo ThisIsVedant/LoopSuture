@@ -11,6 +11,8 @@ export const SCENARIOS: Scenario[] = [
       { id: "crm-support", name: "Sync customer to support", source: "crm", target: "support", repair: "none" },
       { id: "support-crm", name: "Sync support to customer", source: "support", target: "crm", repair: "none" },
     ] },
+  { id: "duplicate", name: "The repeated webhook", summary: "One input arrives four times. Its side effect should happen once, while later changes still work.", systems: ["crm", "marketing"], duplicateDeliveries: 4, actionBudget: 48,
+    workflows: [{ id: "crm-marketing", name: "Publish customer to audience", source: "crm", target: "marketing", repair: "none" }] },
 
 ];
 export function getScenario(id: ScenarioId): Scenario {
