@@ -26,3 +26,16 @@ test("desktop workbench executes, investigates, repairs, and preserves a fresh e
   expect(overflow).toBe(false);
   expect(problems).toEqual([]);
 });
+test("mobile workbench fits its viewport and remains usable", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expect(page.getByText("FalkorDB connected", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Customer CRM", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Run scenario", exact: true })).toBeVisible();
+  await page.screenshot({ path: "artifacts/workbench-mobile.png", fullPage: true });
+  await page.getByLabel("Scenario", { exact: true }).selectOption("healthy-retry");
+  await page.getByRole("button", { name: "Run scenario", exact: true }).click();
+  await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  expect(overflow).toBe(false);
+});
