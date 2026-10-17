@@ -8,7 +8,8 @@
     "start": "next start --hostname 127.0.0.1 --port 3025",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/simulator.test.ts"
+    "test": "tsx --test tests/simulator.test.ts",
+    "test:api": "tsx --test tests/api.test.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.12.0",

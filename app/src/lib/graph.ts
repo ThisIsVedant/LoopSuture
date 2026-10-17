@@ -1,7 +1,7 @@
 import "server-only";
 import { FalkorDB } from "falkordb";
 import { createConnection } from "node:net";
-import type { Run } from "./domain";
+import type { Run, Workflow } from "./domain";
 
 const globalGraph = globalThis as unknown as { loopSutureDb?: Promise<FalkorDB> };
 function connection() {
@@ -64,4 +64,8 @@ export async function loadRun(id: string): Promise<Run | null> {
   const result = await query("MATCH (r:Run {id: $id, ready: true}) RETURN r.snapshot AS snapshot", { id });
   const row = result.data?.[0] as { snapshot?: string } | undefined;
   return row?.snapshot ? JSON.parse(row.snapshot) as Run : null;
+}
+export async function readWorkflows(id: string, revision: number): Promise<Workflow[]> {
+  const result = await query("MATCH (w:Workflow {runId: $id, revision: $revision}) RETURN w.id AS id, w.name AS name, w.source AS source, w.target AS target, w.repair AS repair, w.failuresBeforeSuccess AS failuresBeforeSuccess ORDER BY w.id", { id, revision });
+  return (result.data ?? []).map((row) => row as unknown as Workflow);
 }
