@@ -5,6 +5,7 @@ import { getScenario } from "./scenarios";
 import { evaluateCandidate, simulate } from "./simulator";
 import { investigateRun } from "./investigator";
 import type { BusinessValue, Run, ScenarioId, SystemId } from "./domain";
+import { readModelSettings } from "./model-config";
 
 export class RequestError extends Error { constructor(message: string, public status = 400) { super(message); } }
 const globalLocks = globalThis as unknown as { loopSutureLocks?: Map<string, Promise<unknown>> };
