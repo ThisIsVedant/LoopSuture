@@ -6,6 +6,7 @@ import { evaluateCandidate, simulate } from "./simulator";
 import { investigateRun } from "./investigator";
 import type { BusinessValue, Run, ScenarioId, SystemId } from "./domain";
 import { readModelSettings } from "./model-config";
+import { reuseInvestigation } from "./investigation-cache";
 
 export class RequestError extends Error { constructor(message: string, public status = 400) { super(message); } }
 const globalLocks = globalThis as unknown as { loopSutureLocks?: Map<string, Promise<unknown>> };
@@ -32,6 +33,7 @@ export async function createRun(scenarioId: ScenarioId, origin?: SystemId, value
 export async function investigate(id: string): Promise<Run> {
   return withRunLock(id, async () => {
     const run = await requireRun(id);
+    if (reuseInvestigation(run.investigation, run.revision, Boolean(readModelSettings(process.env)))) return run;
     run.investigation = await investigateRun(run);
     await updateSnapshot(run);
     return run;
