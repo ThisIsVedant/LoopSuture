@@ -27,19 +27,28 @@ export async function runGeminiInvestigation(
 ): Promise<GeminiResult> {
   const io = { ...runtime, ...overrides };
   const started = io.now();
+  const models = [...new Set([settings.model, settings.fallbackModel].filter((model): model is string => Boolean(model)))];
   let requests = 0;
   let retries = 0;
-  const requestedTools: string[] = [];
-  try {
-    const result = await runModel(settings, toolData, instruction, prompt, selectedId, name => requestedTools.push(name), {
-      ...io, budgetMs: INVESTIGATION_TIMEOUT_MS, maxRequests: MAX_REQUESTS,
-      onRequest: () => { requests++; }, onRetry: () => { retries++; },
-    });
-    requestedTools.forEach(onTool);
-    return { ...result, requests, retries, elapsedMs: io.now() - started };
-  } catch (error) {
-    throw new GeminiInvestigationError(error instanceof ModelConnectionError ? error.message : "Gemini could not complete this investigation. The verified graph report remains available.", { model: settings.model, requests, retries, elapsedMs: io.now() - started });
+  for (let index = 0; index < models.length; index++) {
+    const remaining = INVESTIGATION_TIMEOUT_MS - (io.now() - started);
+    if (remaining <= 0 || requests >= MAX_REQUESTS) throw new GeminiInvestigationError("Gemini could not finish within this investigation's time limit. The verified graph report remains available.", { model: models[index], requests, retries, elapsedMs: io.now() - started });
+    // Start a new conversation on fallback; signatures and partial conclusions
+    // belong to their original model and must never cross model boundaries.
+    const requestedTools: string[] = [];
+    try {
+      const result = await runModel({ ...settings, model: models[index] }, toolData, instruction, prompt, selectedId, name => requestedTools.push(name), {
+        ...io, budgetMs: models.length > 1 && index === 0 ? Math.min(60000, remaining) : remaining,
+        maxRequests: MAX_REQUESTS - requests,
+        onRequest: () => { requests++; }, onRetry: () => { retries++; },
+      });
+      requestedTools.forEach(onTool);
+      return { ...result, requests, retries, elapsedMs: io.now() - started };
+    } catch (error) {
+      if (!(error instanceof GeminiTransientError) || index === models.length - 1) throw new GeminiInvestigationError(error instanceof ModelConnectionError ? error.message : "Gemini could not complete this investigation. The verified graph report remains available.", { model: models[index], requests, retries, elapsedMs: io.now() - started });
+    }
   }
+  throw new GeminiTransientError("Gemini is unavailable. The verified graph report remains available.");
 }
 
 async function runModel(

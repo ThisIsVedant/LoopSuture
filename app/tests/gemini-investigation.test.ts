@@ -42,6 +42,28 @@ test("stateless continuation preserves signatures and uses Google's actual JSON 
   } });
 });
 
+test("fallback restarts with clean model context and publishes only the successful evidence receipts", async () => {
+  const h = harness([toolResponse(), ...[503, 503, 503].map(status => Response.json({}, { status })), toolResponse(), finalResponse()], { ...settings, fallbackModel: "gemini-3.5-flash-lite" });
+  const result = await h.invoke();
+  assert.equal(result.model, "gemini-3.5-flash-lite");
+  assert.equal(result.requests, 6);
+  assert.equal(result.retries, 2);
+  assert.equal(h.requests[4].body.model, "gemini-3.5-flash-lite");
+  assert.deepEqual(h.requests[4].body.input, h.requests[0].body.input);
+  assert.deepEqual(h.called, Object.keys(tools), "Failed primary-model evidence is not attributed to the successful fallback");
+});
+
+test("fallback cannot hide quota errors or a conclusion that disagrees with verified evidence", async () => {
+  const config = { ...settings, fallbackModel: "gemini-3.5-flash-lite" };
+  const quota = harness([Response.json({}, { status: 429 })], config);
+  await assert.rejects(quota.invoke());
+  assert.equal(quota.requests.length, 1);
+  const wrongRepair = harness([toolResponse(), finalResponse("three-guards")], config);
+  await assert.rejects(wrongRepair.invoke(), /disagreed/);
+  assert.equal(wrongRepair.requests.length, 2);
+  assert.equal(wrongRepair.called.length, 0);
+});
+
 test("transient final-call failures retry the same history without repeating evidence execution", async () => {
   const h = harness([toolResponse(), Response.json({ error: { code: "service_unavailable" } }, { status: 503, headers: { "Retry-After": "2" } }), finalResponse()]);
   const result = await h.invoke();
