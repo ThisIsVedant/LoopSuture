@@ -6,6 +6,7 @@ import { SCENARIOS } from "@/lib/scenarios";
 import { SYSTEMS, type Run, type ScenarioId, type SystemId } from "@/lib/domain";
 import WorkflowGraph from "./workflow-graph";
 
+type RecentRun = { id: string; scenarioName: string; createdAt: string; revision: number; termination: string };
 export default function Workbench() {
   const [scenarioId, setScenarioId] = useState<ScenarioId>("three-way");
   const [run, setRun] = useState<Run | null>(null);
@@ -14,7 +15,8 @@ export default function Workbench() {
   const [modelProvider, setModelProvider] = useState("Model");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<"timeline" | "evidence">("timeline");
+  const [recent, setRecent] = useState<RecentRun[]>([]);
+  const [tab, setTab] = useState<"timeline" | "evidence" | "history">("timeline");
   const [freshOrigin, setFreshOrigin] = useState<SystemId>("support");
   const [showAllCandidates, setShowAllCandidates] = useState(false);
   const scenario = run?.scenario ?? SCENARIOS.find((item) => item.id === scenarioId)!;
@@ -34,6 +36,9 @@ export default function Workbench() {
   useEffect(() => {
     let active = true;
     fetch("/api/health").then((response) => response.json()).then((data) => { if (active) { setHealth(data.graph); setModel(data.model); setModelProvider(data.modelProvider ?? "Model"); } }).catch(() => { if (active) setHealth("unavailable"); });
+    fetch("/api/runs").then((response) => response.json()).then((data) => { if (active) setRecent(data.runs ?? []); }).catch(() => {});
+    const saved = localStorage.getItem("loopsuture:last-run");
+    if (saved) fetch(`/api/runs/${saved}`).then(async (response) => { if (response.ok) { const item = await response.json() as Run; if (active) { setRun(item); setScenarioId(item.scenario.id); setFreshOrigin(item.scenario.systems[item.scenario.systems.length - 1]); } } }).catch(() => {});
     return () => { active = false; };
   }, []);
 
@@ -45,11 +50,13 @@ export default function Workbench() {
       if (!response.ok) throw new Error(data.error ?? "The operation could not complete.");
       const item = data as Run;
       setRun(item); setScenarioId(item.scenario.id); setFreshOrigin(item.scenario.systems[item.scenario.systems.length - 1]);
+      localStorage.setItem("loopsuture:last-run", item.id);
       setHealth("connected");
+      const list = await fetch("/api/runs").then((result) => result.json()); setRecent(list.runs ?? []);
     } catch (problem) { setError(problem instanceof Error ? problem.message : "Something went wrong."); }
     finally { setBusy(""); }
   }
-  function chooseScenario(id: ScenarioId) { setScenarioId(id); setRun(null); setError(""); }
+  function chooseScenario(id: ScenarioId) { setScenarioId(id); setRun(null); setError(""); localStorage.removeItem("loopsuture:last-run"); }
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -57,7 +64,7 @@ export default function Workbench() {
       <div className="workspace-label">WORKSPACE <span>01</span></div>
       <button className="workspace-switch" onClick={() => { document.getElementById("scenarios")?.scrollIntoView({ behavior: "smooth" }); }}><span className="workspace-avatar">L</span><span>Demo environment<small>Local workbench</small></span><ChevronDown size={14} /></button>
       <div className="nav-label">OPERATIONS</div>
-      <nav><button className="nav-item selected" onClick={() => setTab("timeline")}><Network size={17} />Workbench<span className="nav-dot" /></button><button className="nav-item" onClick={() => setTab("evidence")}><ShieldCheck size={17} />Evidence</button></nav>
+      <nav><button className="nav-item selected" onClick={() => setTab("timeline")}><Network size={17} />Workbench<span className="nav-dot" /></button><button className={`nav-item ${tab === "history" ? "nav-sub-selected" : ""}`} onClick={() => setTab("history")}><Activity size={17} />Run history<span className="nav-count">{recent.length}</span></button><button className="nav-item" onClick={() => setTab("evidence")}><ShieldCheck size={17} />Evidence</button></nav>
       <div className="sidebar-note"><span className="note-icon"><Layers size={18} /></span><h3>Connected, not repeated.</h3><p>Follow the cause. Preserve the outcome.</p><span className="powered">POWERED BY FALKORDB <ArrowUpRight size={12} /></span></div>
       <div className="sidebar-footer"><span className="user-avatar">SO</span><div>Solo workspace<small>Graph Hacks · Track 01</small></div><CircleDot size={15} /></div>
     </aside>
@@ -97,9 +104,10 @@ export default function Workbench() {
 
         {investigation && investigation.candidates.length > 0 && <section className="panel candidates-panel"><div className="panel-header"><div><span className="small-overline">COMPARE THE TRADEOFFS</span><h2>Stopping the loop is only half the job.</h2></div><span className="muted">{investigation.candidates.length} candidates evaluated</span></div><div className="candidate-table"><div className="table-heading"><span>SUPPORTED CHANGE</span><span>DELIVERY CHECKS</span><span>DECISION</span></div>{visibleCandidates.map((candidate) => <div className="candidate-row" key={candidate.id}><div><strong>{candidate.title}</strong><p>{candidate.reason}</p></div><span>{candidate.baselineReplay.metrics.goalsPassed}/{candidate.baselineReplay.metrics.goalsTotal} original · {candidate.probes.filter((p) => p.passed).length}/{candidate.probes.length} fresh</span><span className={`decision ${candidate.eligible ? "accepted" : "rejected"}`}>{candidate.eligible ? <Check size={13} /> : <X size={13} />}{candidate.id === selected?.id ? "Selected" : candidate.eligible ? "Eligible" : "Rejected"}</span></div>)}</div>{investigation.candidates.length > compactCandidates.length && <button className="button button-subtle candidate-toggle" onClick={() => setShowAllCandidates((value) => !value)}>{showAllCandidates ? "Show the key tradeoffs" : `Show all ${investigation.candidates.length} candidates`}<ChevronDown size={13} /></button>}</section>}
 
-        <section className="panel timeline-panel"><div className="timeline-header"><div className="tabs"><button className={tab === "timeline" ? "active" : ""} onClick={() => setTab("timeline")}><Activity size={15} />Event timeline</button><button className={tab === "evidence" ? "active" : ""} onClick={() => setTab("evidence")}><GitBranch size={15} />Graph evidence</button></div></div>
+        <section className="panel timeline-panel"><div className="timeline-header"><div className="tabs"><button className={tab === "timeline" ? "active" : ""} onClick={() => setTab("timeline")}><Activity size={15} />Event timeline</button><button className={tab === "evidence" ? "active" : ""} onClick={() => setTab("evidence")}><GitBranch size={15} />Graph evidence</button><button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}><Layers size={15} />Run history</button></div></div>
           {tab === "timeline" && (run ? <div className="timeline-body"><div className="timeline-caption"><span>RUN {run.id.slice(0,8).toUpperCase()} · REVISION {run.revision}</span><span>{run.simulation.actions.length} recorded actions · originating change {run.input.id.slice(0,8)}</span></div><div className="timeline-scroll">{run.simulation.actions.map((action) => <div className="event-row" key={action.id}><span className="event-sequence">{String(action.sequence + 1).padStart(2,"0")}</span><span className={`event-state ${action.status}`}><span /></span><div><strong>{SYSTEMS[action.source].name}<ArrowRight size={12} />{SYSTEMS[action.target].name}</strong><p>{action.reason}</p></div><span className="event-workflow">{action.workflowId}</span><span className="event-label">{action.status}</span></div>)}</div></div> : <div className="timeline-empty"><Activity size={23} strokeWidth={1.4} /><div><h3>Your evidence starts here.</h3><p>Execute a scenario to record real actions in the demonstration environment.</p></div><span className="empty-shortcut"><Command size={13} />RUN SCENARIO</span></div>)}
           {tab === "evidence" && <div className="evidence-body"><p className="muted">{investigation ? "Paths returned from FalkorDB's recorded event ancestry. A graph cycle alone is not a diagnosis." : "Investigate a run to retrieve its causal paths and replay evidence."}</p>{investigation?.paths.map((path, index) => <div className="evidence-path" key={index}><span>PATH {index+1}</span><strong>{path.systems.map((system) => SYSTEMS[system].name).join(" → ")}</strong><code>{path.eventIds.join(" → ")}</code></div>)}{investigation?.receipts.map((receipt, index) => <div className="receipt-row" key={index}><span className="receipt-source">{receipt.source}</span><strong>{receipt.tool}</strong><p>{receipt.detail}</p></div>)}{investigation && <details className="query-details"><summary>View the essential graph query</summary><pre>{`MATCH p=(a:Event {runId: $id, revision: $revision})\n  -[:CAUSED*1..9]->(b:Event {runId: $id, revision: $revision})\nWHERE a.sequence = 0 AND a.rootId = b.rootId\n  AND a.system = b.system AND a.payloadHash = b.payloadHash\nRETURN [n IN nodes(p) | n.id], [n IN nodes(p) | n.system]`}</pre></details>}</div>}
+          {tab === "history" && <div className="history-body">{recent.length ? recent.map((item) => <button className="history-row" disabled={Boolean(busy)} key={item.id} onClick={() => operation("Loading saved run", `/api/runs/${item.id}`, undefined, "GET")}><span className="history-icon"><Layers size={16} /></span><span><strong>{item.scenarioName}</strong><small>{item.id.slice(0,8)} · revision {item.revision} · {new Date(item.createdAt).toLocaleString()}</small></span><span className={`status-pill ${item.termination === "drained" ? "green" : "amber"}`}>{item.termination === "drained" ? "Completed" : "Bound reached"}</span><ArrowUpRight size={15} /></button>) : <p className="muted">No saved runs yet. Run your first scenario to create persistent evidence.</p>}</div>}
         </section>
         <footer className="page-footer"><span><span className="footer-dot" />Connected data. Explainable action.</span><span>Checks are scoped to synthetic scenarios and a bounded replay horizon.</span></footer>
       </div>

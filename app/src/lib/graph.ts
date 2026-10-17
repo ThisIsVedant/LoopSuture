@@ -65,6 +65,10 @@ export async function loadRun(id: string): Promise<Run | null> {
   const row = result.data?.[0] as { snapshot?: string } | undefined;
   return row?.snapshot ? JSON.parse(row.snapshot) as Run : null;
 }
+export async function listRuns(): Promise<{ id: string; createdAt: string; scenarioName: string; revision: number; termination: string }[]> {
+  const result = await query("MATCH (r:Run {ready: true}) RETURN r.snapshot AS snapshot ORDER BY r.createdAt DESC LIMIT 12");
+  return (result.data ?? []).map((row) => { const run = JSON.parse((row as { snapshot: string }).snapshot) as Run; return { id: run.id, createdAt: run.createdAt, scenarioName: run.scenario.name, revision: run.revision, termination: run.simulation.termination }; });
+}
 export const FEEDBACK_QUERY = "MATCH p=(a:Event {runId: $id, revision: $revision})-[:CAUSED*1..9]->(b:Event {runId: $id, revision: $revision}) WHERE a.sequence = 0 AND a.rootId = b.rootId AND a.system = b.system AND a.payloadHash = b.payloadHash RETURN [n IN nodes(p) | n.id] AS eventIds, [n IN nodes(p) | n.system] AS systems, [n IN nodes(p) | n.workflowId] AS workflowIds, a.rootId AS rootId ORDER BY b.sequence LIMIT 3";
 export async function traceFeedback(id: string, revision: number): Promise<PathEvidence[]> {
   const result = await query(FEEDBACK_QUERY, { id, revision });

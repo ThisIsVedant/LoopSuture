@@ -20,5 +20,9 @@ test("desktop workbench executes, investigates, repairs, and preserves a fresh e
   await page.getByRole("button", { name: "Send edit", exact: true }).click();
   await expect(page.getByText("Completed", { exact: true })).toBeVisible();
   await expect(page.getByText("Version 2 · qualified")).toHaveCount(3);
+  await page.reload();
+  await expect(page.getByText("Version 2 · qualified")).toHaveCount(3);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  expect(overflow).toBe(false);
   expect(problems).toEqual([]);
 });
