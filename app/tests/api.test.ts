@@ -7,7 +7,7 @@ async function api(path: string, body?: unknown, method = "POST") {
   return { status: response.status, body: await response.json() };
 }
 
-test("investigate graph evidence and rank supported repairs", async () => {
+test("reject ineligible repairs and stale revisions", async () => {
   const created = await api("/api/runs", { scenarioId: "three-way" });
   assert.equal(created.status, 201);
   const run = created.body as Run;
@@ -17,6 +17,16 @@ test("investigate graph evidence and rank supported repairs", async () => {
   assert.ok(result.investigation?.paths.length);
   assert.equal(result.investigation.status, "repair-found");
   assert.equal(result.investigation.candidates.length, 17);
+  const rejected = result.investigation.candidates.find((candidate) => !candidate.eligible)!;
+  const badApply = await api(`/api/runs/${run.id}/repair`, { candidateId: rejected.id, revision: 0 });
+  assert.equal(badApply.status, 422);
+  const repaired = await api(`/api/runs/${run.id}/repair`, { candidateId: result.investigation.selectedId, revision: 0 });
+  assert.equal(repaired.status, 200);
+  assert.equal(repaired.body.simulation.termination, "drained");
+  assert.equal(repaired.body.simulation.metrics.repeated, 0);
+  assert.equal(repaired.body.history[0].simulation.termination, "budget-exhausted");
+  const stale = await api(`/api/runs/${run.id}/repair`, { candidateId: result.investigation.selectedId, revision: 0 });
+  assert.equal(stale.status, 409);
 });
 test("healthy retries are not repaired, while repeated webhook effects are identified through graph actions", async () => {
   const healthy = await api("/api/runs", { scenarioId: "healthy-retry" });
