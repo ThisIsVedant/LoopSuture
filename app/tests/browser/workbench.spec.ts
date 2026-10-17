@@ -13,5 +13,12 @@ test("desktop workbench executes, investigates, repairs, and preserves a fresh e
   await page.getByRole("button", { name: "Investigate this run" }).click();
   await expect(page.getByText("Verified candidate found", { exact: true })).toBeVisible();
   await expect(page.getByText("Rejected", { exact: true }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Apply verified repair" }).click();
+  await expect(page.getByText("Verified repair installed", { exact: true })).toBeVisible();
+  await page.screenshot({ path: "artifacts/workbench-repaired.png", fullPage: true });
+  await page.getByLabel("Test a new customer edit").selectOption("marketing");
+  await page.getByRole("button", { name: "Send edit", exact: true }).click();
+  await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Version 2 · qualified")).toHaveCount(3);
   expect(problems).toEqual([]);
 });

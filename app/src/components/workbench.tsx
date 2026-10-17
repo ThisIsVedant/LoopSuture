@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Activity, ArrowRight, ArrowUpRight, Check, CheckCircle2, ChevronDown, CircleDot, Command, GitBranch, Layers, LoaderCircle, Network, Play, RotateCcw, Search, ShieldCheck, Sparkles, TriangleAlert, X, Zap } from "lucide-react";
 import { SCENARIOS } from "@/lib/scenarios";
-import { SYSTEMS, type Run, type ScenarioId } from "@/lib/domain";
+import { SYSTEMS, type Run, type ScenarioId, type SystemId } from "@/lib/domain";
 import WorkflowGraph from "./workflow-graph";
 
 export default function Workbench() {
@@ -15,6 +15,7 @@ export default function Workbench() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"timeline" | "evidence">("timeline");
+  const [freshOrigin, setFreshOrigin] = useState<SystemId>("support");
   const [showAllCandidates, setShowAllCandidates] = useState(false);
   const scenario = run?.scenario ?? SCENARIOS.find((item) => item.id === scenarioId)!;
   const investigation = run?.investigation;
@@ -43,7 +44,7 @@ export default function Workbench() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "The operation could not complete.");
       const item = data as Run;
-      setRun(item); setScenarioId(item.scenario.id);
+      setRun(item); setScenarioId(item.scenario.id); setFreshOrigin(item.scenario.systems[item.scenario.systems.length - 1]);
       setHealth("connected");
     } catch (problem) { setError(problem instanceof Error ? problem.message : "Something went wrong."); }
     finally { setBusy(""); }
@@ -86,8 +87,11 @@ export default function Workbench() {
             : <div className="investigation-result"><div className={`result-tag ${investigation.status === "unresolved" ? "amber-text" : ""}`}><ShieldCheck size={15} />{investigation.status === "healthy" ? "Healthy repetition" : investigation.status === "repair-found" ? repaired ? "Verified repair installed" : "Verified candidate found" : "No safe candidate found"}</div><p className="explanation">{investigation.explanation}</p>{investigation.modelNote && <p className="mode-note">{investigation.modelNote}</p>}
               {investigation.mode === "graph" && model === "configured" && investigation.revision === run?.revision && <button className="button button-subtle full-width" disabled={Boolean(busy)} onClick={() => run && operation(`Investigating with ${modelProvider}`, `/api/runs/${run.id}/investigate`)}>{busy ? <LoaderCircle size={15} className="spin" /> : <RotateCcw size={15} />}{investigation.modelNote ? "Retry" : "Run"} {modelProvider} investigation</button>}
               {selected && <div className="selected-candidate"><span className="small-overline">SELECTED CHANGE</span><h3>{selected.kind === "suppress-noop" ? "Skip unchanged writes" : "Deduplicate this change"}</h3><p>{selected.workflowIds.length === 1 ? scenario.workflows.find((item) => item.id === selected.workflowId)?.name : `${selected.workflowIds.length} workflow guards · ${selected.workflowIds.join(", ")}`}</p><div className="candidate-checks"><span><CheckCircle2 size={13} />Delivery goals pass</span><span><CheckCircle2 size={13} />{selected.probes.length} fresh origins pass</span></div></div>}
+              {selected && !repaired && <button className="button button-green full-width" disabled={Boolean(busy)} onClick={() => run && operation("Applying verified repair", `/api/runs/${run.id}/repair`, { candidateId: selected.id, revision: run.revision })}><ShieldCheck size={15} />Apply verified repair<ArrowRight size={15} /></button>}
+              {repaired && <div className="fresh-edit"><label htmlFor="fresh-origin">Test a new customer edit</label><div className="fresh-edit-controls"><select id="fresh-origin" value={freshOrigin} disabled={Boolean(busy)} onChange={(event) => setFreshOrigin(event.target.value as SystemId)}>{scenario.systems.map((system) => <option key={system} value={system}>{SYSTEMS[system].name}</option>)}</select><button className="button button-dark" disabled={Boolean(busy)} onClick={() => run && operation("Checking a fresh edit", `/api/runs/${run.id}/edit`, { origin: freshOrigin, status: run.input.value.status === "qualified" ? "customer" : "qualified" })}><Play size={14} />Send edit</button></div></div>}
               <span className="mode-note">{investigation.mode === "model" ? `${investigation.modelProvider ?? "Model"} investigation with verified tools` : "Deterministic graph analysis"} · revision {investigation.revision}</span>
             </div>}
+            {repaired && !investigation && <div className="fresh-edit standalone"><label htmlFor="fresh-origin-again">Send another distinct edit</label><div className="fresh-edit-controls"><select id="fresh-origin-again" value={freshOrigin} disabled={Boolean(busy)} onChange={(event) => setFreshOrigin(event.target.value as SystemId)}>{scenario.systems.map((system) => <option key={system} value={system}>{SYSTEMS[system].name}</option>)}</select><button className="button button-dark" disabled={Boolean(busy)} onClick={() => run && operation("Checking a fresh edit", `/api/runs/${run.id}/edit`, { origin: freshOrigin, status: run.input.value.status === "qualified" ? "customer" : "qualified" })}><Play size={14} />Send edit</button></div></div>}
           </section>
         </div>
 
