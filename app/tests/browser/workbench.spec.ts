@@ -10,5 +10,8 @@ test("desktop workbench executes, investigates, repairs, and preserves a fresh e
   await page.screenshot({ path: "artifacts/workbench-empty.png", fullPage: true });
   await page.getByRole("button", { name: "Run scenario", exact: true }).click();
   await expect(page.getByText("Bound reached", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Investigate this run" }).click();
+  await expect(page.getByText("Verified candidate found", { exact: true })).toBeVisible();
+  await expect(page.getByText("Rejected", { exact: true }).first()).toBeVisible();
   expect(problems).toEqual([]);
 });
